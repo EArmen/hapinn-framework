@@ -1,0 +1,1089 @@
+\documentclass[preprint,12pt]{elsarticle}
+
+% -------------------------------------------------
+% PACKAGES
+% -------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+
+\usepackage{amsmath,amssymb,amsfonts,amsthm,mathtools,bm,mathrsfs}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage[expansion=false]{microtype}
+\usepackage{setspace}
+\usepackage{indentfirst}
+
+\onehalfspacing
+
+% -------------------------------------------------
+% THEOREMS
+% -------------------------------------------------
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{assumption}[theorem]{Assumption}
+
+\numberwithin{equation}{section}
+
+% -------------------------------------------------
+% CUSTOM COMMANDS
+% -------------------------------------------------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\cL}{\mathcal{L}}
+\newcommand{\cB}{\mathcal{B}}
+\newcommand{\cS}{\mathcal{S}}
+\newcommand{\cU}{\mathcal{U}}
+\newcommand{\cM}{\mathcal{M}}
+\newcommand{\cD}{\mathcal{D}}
+\newcommand{\cE}{\mathcal{E}}
+\newcommand{\cJ}{\mathcal{J}}
+\newcommand{\cA}{\mathcal{A}}
+\newcommand{\cR}{\mathcal{R}}
+\newcommand{\cT}{\mathcal{T}}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
+\newcommand{\ip}[2]{\left\langle #1,#2 \right\rangle}
+\newcommand{\argmin}{\operatorname*{arg\,min}}
+\newcommand{\diam}{\operatorname{diam}}
+\newcommand{\supp}{\operatorname{supp}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\dist}{\operatorname{dist}}
+\newcommand{\Proj}{\operatorname{P}}
+
+% -------------------------------------------------
+\journal{Journal of Computational Science}
+% -------------------------------------------------
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{HAPINN: A Solver-Guided Anchor-Based Framework for Parameterized Differential Equations}
+
+\author[aff1]{Sergo A. Episkoposian}
+\ead{sergo.episkoposyan@polytechnic.am}
+
+\author[aff1]{Alfred V. Petrosyan}
+\ead{petrosyanalfred58@gmail.com}
+
+\author[aff2]{Armen S. Yepiskoposyan\corref{cor1}}
+\ead{earmen04@gmail.com}
+
+\cortext[cor1]{Corresponding author}
+
+\address[aff1]{Department of Applied Mathematics and Physics, National Polytechnic University of Armenia, Teryan 105, Yerevan 0003, Armenia}
+
+\address[aff2]{Institute of Physics, Yerevan State University, Al. Manukyan 1, Yerevan 0003, Armenia}
+
+\begin{abstract}
+This paper introduces \textbf{HAPINN} (\emph{Hybrid Anchor-based Physics-Informed Neural Network}), a solver-guided framework for parameterized differential equations in which a classical numerical solver provides a limited but informative anchor structure and a neural surrogate is trained simultaneously against the governing physics and anchor consistency. The central methodological point is that anchor information is treated not as dense supervision, but as a structural admissibility mechanism that narrows the set of residual-consistent near-minimizers, reduces solution-branch ambiguity, and improves training stability.
+
+The paper makes four main contributions. First, it formulates HAPINN in a unified way for parameterized boundary-value and initial-boundary-value problems. Second, in a coercive elliptic model setting, it proves a projection-based transfer estimate from solver to surrogate and gives finite-dimensional sufficient conditions under which the anchor-residual stability assumption is valid. Third, it provides an explicit analytical model that reveals in closed form how the anchor term acts as a stabilizer and a selector, together with a transparent decomposition of the total error into numerical, projection, approximation, optimization, and parametric generalization components. Fourth, it interprets a previously published hybrid PINN--TCAD realization for the p--n junction as an application-level instance of the same framework.
+
+No new large-scale empirical campaign is claimed in this article. The purpose of the paper is conceptual, methodological, and theoretical: to isolate, formalize, and justify a solver-guided principle that has already appeared in application-specific form but has not yet been stated as a standalone framework. In this sense, the paper connects general theory with published application-level evidence while clearly separating framework novelty from prior device-specific results.
+\end{abstract}
+
+\begin{keyword}
+physics-informed neural networks \sep
+parameterized PDEs \sep
+solver-guided learning \sep
+anchor stabilization \sep
+projection theory \sep
+scientific machine learning \sep
+error decomposition \sep
+semiconductor modeling
+\end{keyword}
+
+\end{frontmatter}
+
+% =================================================
+\section{Introduction}
+% =================================================
+
+Parameterized differential equations are central to modern scientific computing. They arise in semiconductor modeling, heat transfer, transport problems, electrochemistry, reaction--diffusion systems, inverse problems, uncertainty quantification, and control. In such settings the governing physics is known, yet repeated numerical solution across a parameter range remains expensive.
+
+Classical numerical solvers remain indispensable because of their interpretability, stability, and mature error theory. Neural surrogates, by contrast, provide fast inference after training, but purely data-driven approximations may fail to preserve the structure of the underlying operator. Physics-informed neural networks (PINNs) seek to reduce this gap by enforcing the differential operator inside the loss functional \cite{Raissi2019,Karniadakis2021}. Even so, pure PINN methods are known to suffer from optimization stiffness, sensitivity to loss balancing, difficulty on multiscale problems, and ambiguity among residual-consistent approximations.
+
+The present paper studies one particular way of reducing that ambiguity: a classical solver is used not as a competing alternative to the surrogate and not as a generator of a full dense training dataset, but as a source of a \emph{limited anchor structure}. These anchors may consist of pointwise values, local averages, interface traces, or other observation functionals evaluated at selected parameter instances. The surrogate is then trained by combining the PDE residual with the relevant boundary or initial conditions and a distinct anchor consistency term.
+
+We denote this class of methods by
+\[
+\textbf{HAPINN}=\text{Hybrid Anchor-based Physics-Informed Neural Network}.
+\]
+
+The purpose of the present paper is not to claim a new application result for one specific physical system. Rather, its purpose is to identify and formalize a general methodological principle that appears in solver-guided hybrid schemes: sparse, reliable solver-side information can restrict the residual-admissible set and thereby improve structural consistency of the learned surrogate.
+
+The central claim is therefore conceptual and mathematical:
+\begin{quote}
+Anchor information in HAPINN is not merely an auxiliary data source; it acts as a structural admissibility mechanism.
+\end{quote}
+
+This interpretation distinguishes HAPINN both from pure PINN and from ordinary supervised regression on solver-generated outputs.
+
+A simple running example helps fix ideas. Consider the one-dimensional parameterized Poisson problem
+\begin{equation}
+-\frac{d^2u}{dx^2}(x;\mu)=\mu\pi^2\sin(\pi x),\qquad x\in(0,1),\qquad u(0;\mu)=u(1;\mu)=0,
+\label{eq:runningexample}
+\end{equation}
+whose exact solution is $u^\star(x;\mu)=\mu\sin(\pi x)$. A classical solver can provide reliable values or functionals of $u^\star$ at selected parameters, while the surrogate is trained against both the residual and these anchors. This simple model already exhibits the essential compromise between physics fidelity and solver guidance. We return to it in Section~\ref{sec:toy}.
+
+\subsection*{Main contributions}
+
+The contributions of the paper are as follows:
+\begin{enumerate}[label=\arabic*)]
+    \item a unified abstract formulation of HAPINN is given for parameterized boundary-value and initial-boundary-value problems;
+    \item a canonical hybrid functional is stated, together with a precise methodological distinction from pure PINN, plain regression, and standard multi-fidelity fitting;
+    \item a coercive elliptic model theory is developed, including an anchor-residual stability assumption, finite-dimensional sufficient conditions, a projection-based transfer theorem, and a consistency corollary;
+    \item an explicit analytical toy model is derived, showing how the anchor term mediates the compromise between residual fidelity and solver fidelity;
+    \item a five-component error decomposition is formulated;
+    \item a previously published hybrid PINN--TCAD realization for the p--n junction is interpreted as a concrete instance of HAPINN.
+\end{enumerate}
+
+\subsection*{Scope of the paper}
+
+This is a framework paper. It is not a new semiconductor application paper, and it does not claim a new large benchmark campaign. The application-level role of the semiconductor example is narrower and more honest: it serves as published evidence that the solver-guided principle formalized here has already been realized successfully in one concrete PDE setting.
+
+\subsection*{Structure of the paper}
+
+Section~\ref{sec:positioning} positions HAPINN in the literature. Section~\ref{sec:formulation} gives the general abstract formulation. Section~\ref{sec:theory} develops the rigorous model theory. Section~\ref{sec:toy} presents the analytical toy model. Section~\ref{sec:error} gives the error decomposition. Section~\ref{sec:algorithm} summarizes the algorithmic structure. Section~\ref{sec:practical} discusses practical anchor design and loss balancing. Section~\ref{sec:instance} interprets the published semiconductor realization as a HAPINN instance. Sections~\ref{sec:classes}--\ref{sec:conclusion} discuss transferability, limitations, and conclusions.
+
+% =================================================
+\section{Positioning in the literature}
+\label{sec:positioning}
+% =================================================
+
+\subsection{Pure PINNs}
+
+Classical PINNs enforce the differential operator, boundary conditions, and initial data through a composite loss functional \cite{Raissi2019,Karniadakis2021}. Their strength lies in embedding known physics directly into training. Their weakness is equally well known: optimization pathologies, difficult term balancing, and residual-small approximations that are not always the physically relevant ones.
+
+\subsection{Neural operators}
+
+Neural operator methods such as DeepONet and the Fourier Neural Operator learn mappings between function spaces rather than solving each instance from scratch \cite{DeepONet2021,FNO2021}. They are powerful for operator learning, but in their standard form they do not impose anchor-based admissibility restrictions inside the loss functional itself.
+
+\subsection{Hybrid and stabilized PINN variants}
+
+A broad literature now exists on decomposition-based PINNs, gradient-enhanced PINNs, causality-respecting training, and adaptive collocation \cite{PPINN2020,GradientEnhancedPINN2022,WangCausality2022}. These directions address real weaknesses of PINNs, but they do not in general isolate sparse solver-derived observables as a distinct structural mechanism for restricting the residual-consistent set.
+
+\subsection{Multi-fidelity learning}
+
+Multi-fidelity PINNs combine low- and high-fidelity information in a unified learning architecture \cite{MFPINN2022,MultifidelitySurvey2024}. This direction overlaps with HAPINN and must be discussed carefully. The overlap is genuine: both frameworks use solver-side information.
+
+The distinction lies in how that information is interpreted. In multi-fidelity schemes, low-fidelity data are commonly treated as an auxiliary approximation layer, a cheap teacher, or a secondary data source. In HAPINN, by contrast, anchors may be sparse and may be insufficient for stand-alone regression; their role is to eliminate or penalize residual-admissible directions that are incompatible with solver-guided observations. Put differently, multi-fidelity formulations usually use solver information to enrich approximation, whereas HAPINN uses solver information to constrain admissibility.
+
+\begin{proposition}[Non-equivalence to pure fidelity fitting]
+\label{prop:noneq}
+Let $X_N$ be a finite-dimensional approximation class. Suppose that the anchor observations $\{\ell_j(w)\}_{j=1}^m$ do not uniquely determine $w\in X_N$, that is,
+\[
+\bigcap_{j=1}^m \ker(\ell_j|_{X_N})\neq\{0\},
+\]
+but the combined map
+\[
+w\mapsto \bigl(A_\mu w,\ell_1(w),\dots,\ell_m(w)\bigr)
+\]
+is injective on $X_N$. Then the corresponding HAPINN objective cannot be reduced to supervised fitting on anchor values alone.
+\end{proposition}
+
+\begin{proof}
+If the anchor observations do not uniquely determine $w\in X_N$, then anchor loss alone leaves nontrivial undetermined directions in $X_N$. If the combined residual-anchor map is injective, those directions are removed only when the operator term is included. Hence the hybrid objective is not equivalent to pure fitting on anchor values.
+\end{proof}
+
+Proposition~\ref{prop:noneq} identifies the core methodological point: in HAPINN, the operator and the anchors act together to define admissibility.
+
+\subsection{Historically related reduced-order ideas}
+
+Reduced basis and related model reduction methods combine a limited number of high-accuracy solutions with a cheaper approximation space \cite{ReducedBasis2008,ROMSurvey2015}. HAPINN is historically related to that logic, but differs in two essential ways: it operates inside a physics-informed training functional, and it uses anchor-based restriction in a neural approximation setting rather than a classical offline--online decomposition.
+
+\subsection{Comparative view}
+
+For editorial clarity, Table~\ref{tab:positioning} summarizes the main distinction between neighboring method classes.
+
+\begin{table}[H]
+\centering
+\caption{Positioning of HAPINN relative to neighboring computational paradigms}
+\label{tab:positioning}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{p{2.9cm}p{2.6cm}p{2.4cm}p{2.3cm}p{2.2cm}p{2.4cm}}
+\toprule
+\textbf{Method class} & \textbf{Solver used during training} & \textbf{PDE residual in loss} & \textbf{Sparse anchors sufficient} & \textbf{Admissibility restriction} & \textbf{Typical role of solver information} \\
+\midrule
+Pure PINN & No & Yes & Not applicable & No explicit restriction beyond residual terms & None \\
+\addlinespace
+Regression on solver data & Yes & No & Sometimes & No & Dense or sparse supervision \\
+\addlinespace
+Multi-fidelity PINN & Yes & Usually yes & Sometimes & Usually weak or indirect & Auxiliary accuracy layer or teacher \\
+\addlinespace
+Neural operator & Usually no & Usually no & Not central & No & Offline operator learning \\
+\addlinespace
+Reduced basis / ROM & Yes & Not in training-loss form & Not central & Projection-based admissibility & Basis construction \\
+\addlinespace
+HAPINN & Yes & Yes & Yes & Yes, explicit & Structural constraint and branch control \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =================================================
+\section{General HAPINN formulation}
+\label{sec:formulation}
+% =================================================
+
+\subsection{Parameterized PDE problem}
+
+Let $\Omega\subset\R^d$ be a bounded domain and let $\mu\in\cM\subset\R^p$ denote a parameter. Consider
+\begin{equation}
+\cL_\mu u(x;\mu)=f(x;\mu),\qquad x\in\Omega,
+\label{eq:pde_general}
+\end{equation}
+with boundary condition
+\begin{equation}
+\cB_\mu u(x;\mu)=g(x;\mu),\qquad x\in\partial\Omega,
+\label{eq:bc_general}
+\end{equation}
+and, when relevant, initial condition
+\begin{equation}
+u(x,0;\mu)=u_0(x;\mu),\qquad x\in\Omega.
+\label{eq:ic_general}
+\end{equation}
+
+We are interested in the full solution family
+\[
+\{u^\star(\cdot;\mu)\colon \mu\in\cM\}.
+\]
+
+\begin{definition}
+The system \eqref{eq:pde_general}--\eqref{eq:bc_general}, together with \eqref{eq:ic_general} whenever present, will be called a \emph{parameterized PDE problem}.
+\end{definition}
+
+\subsection{Anchor structure}
+
+Let $\cS_h$ be a classical solver producing an approximation
+\[
+u_h(\cdot;\mu)=\cS_h(\mu).
+\]
+In HAPINN, the solver need not generate a dense training dataset. Instead, it produces an \emph{anchor structure}, which may be pointwise, functional, local, or mixed.
+
+\begin{definition}
+An \emph{anchor set} is a collection
+\[
+\cD_a=\left\{(\ell_j,\mu^{(k)},d_{j,k})\right\},
+\qquad
+d_{j,k}=\ell_j\bigl(u_h(\cdot;\mu^{(k)})\bigr),
+\]
+where the $\ell_j$ are chosen observation functionals.
+\end{definition}
+
+This definition is intentionally broad. It covers point values, traces, averages, integral moments, interface observables, and other physically meaningful quantities. In the abstract formulation of Section~\ref{sec:formulation}, the observables may be linear or nonlinear. In the rigorous theory of Section~\ref{sec:theory}, we restrict attention to bounded linear functionals in order to obtain explicit analytic statements.
+
+\subsection{Canonical HAPINN loss}
+
+Let $u_\theta(x;\mu)$ be the neural surrogate. The canonical hybrid functional is
+\begin{equation}
+\cJ(\theta)=
+\lambda_r\cJ_r(\theta)+
+\lambda_b\cJ_b(\theta)+
+\lambda_0\cJ_0(\theta)+
+\lambda_a\cJ_a(\theta)+
+\lambda_{\mathrm{reg}}\cJ_{\mathrm{reg}}(\theta),
+\label{eq:HAPINNloss}
+\end{equation}
+where
+\begin{align}
+\cJ_r(\theta)
+&=
+\frac{1}{|\cD_r|}
+\sum_{(x,\mu)\in\cD_r}
+\abs{\cL_\mu u_\theta(x;\mu)-f(x;\mu)}^2,
+\label{eq:Jr}\\
+\cJ_b(\theta)
+&=
+\frac{1}{|\cD_b|}
+\sum_{(x,\mu)\in\cD_b}
+\abs{\cB_\mu u_\theta(x;\mu)-g(x;\mu)}^2,
+\label{eq:Jb}\\
+\cJ_0(\theta)
+&=
+\frac{1}{|\cD_0|}
+\sum_{(x,\mu)\in\cD_0}
+\abs{u_\theta(x,0;\mu)-u_0(x;\mu)}^2,
+\label{eq:J0}\\
+\cJ_a(\theta)
+&=
+\frac{1}{|\cD_a|}
+\sum_{(\ell,\mu,d)\in\cD_a}
+\abs{\ell(u_\theta(\cdot;\mu))-d}^2.
+\label{eq:Ja}
+\end{align}
+
+If $\lambda_a=0$, one recovers an ordinary PINN. If the residual terms are removed and only $\cJ_a$ remains, one obtains supervised fitting on sparse observations. HAPINN occupies the intermediate regime in which both ingredients are essential.
+
+\subsection{Geometric interpretation}
+
+Define the residual-admissible set
+\[
+\cA_\eps=
+\{v\in\cU:\cE_r(v)\le\eps_r,\ \cE_b(v)\le\eps_b,\ \cE_0(v)\le\eps_0\}.
+\]
+After adding the anchor criterion
+\[
+\cE_a(v)=\sum_{j=1}^{m}\abs{\ell_j(v)-\ell_j(u_h)}^2,
+\]
+one obtains
+\[
+\cA_{\eps,\delta}
+=
+\{v\in\cA_\eps:\cE_a(v)\le\delta\}\subseteq \cA_\eps.
+\]
+
+\begin{proposition}[Anchor-based narrowing]
+\label{prop:geom}
+If the anchor functionals are informative on the effective approximation class, then $\cA_{\eps,\delta}$ is strictly smaller than $\cA_\eps$ for sufficiently small $\delta$.
+\end{proposition}
+
+\begin{proof}
+The inclusion is immediate. If two residual-admissible elements differ in at least one informative observable, they cannot both satisfy the anchor condition for sufficiently small $\delta$.
+\end{proof}
+
+\begin{proposition}[Level-set selection]
+\label{prop:branch}
+Let
+\[
+\mathcal{J}_{\mathrm{PINN}}=\lambda_r\mathcal{J}_r+\lambda_b\mathcal{J}_b+\lambda_0\mathcal{J}_0
+\]
+and
+\[
+\mathcal{J}_{\mathrm{HAPINN}}
+=
+\mathcal{J}_{\mathrm{PINN}}+\lambda_a\mathcal{J}_a,
+\qquad \lambda_a>0.
+\]
+Then for every $\eps>0$,
+\[
+\Theta_{\mathrm{HAPINN}}^\eps
+=
+\{\theta:\mathcal{J}_{\mathrm{HAPINN}}(\theta)\le \eps\}
+\subseteq
+\Theta_{\mathrm{PINN}}^\eps
+=
+\{\theta:\mathcal{J}_{\mathrm{PINN}}(\theta)\le \eps\},
+\]
+and every element of $\Theta_{\mathrm{HAPINN}}^\eps$ satisfies
+\[
+\mathcal{J}_a(\theta)\le \eps/\lambda_a.
+\]
+\end{proposition}
+
+\begin{proof}
+By nonnegativity of $\mathcal{J}_a$,
+\[
+\mathcal{J}_{\mathrm{PINN}}(\theta)\le \mathcal{J}_{\mathrm{HAPINN}}(\theta).
+\]
+If $\theta\in\Theta_{\mathrm{HAPINN}}^\eps$, then
+\[
+\lambda_a \mathcal{J}_a(\theta)\le \mathcal{J}_{\mathrm{HAPINN}}(\theta)\le \eps,
+\]
+hence the stated bound.
+\end{proof}
+
+% =================================================
+\section{Rigorous model theory}
+\label{sec:theory}
+% =================================================
+
+\subsection{Coercive elliptic setting}
+
+For the theory we consider a standard coercive elliptic model. Let $\Omega\subset\R^d$ be bounded and Lipschitz, and let
+\[
+V=H_0^1(\Omega).
+\]
+For each $\mu\in\cM$ define
+\begin{equation}
+a_\mu(u,v)=\int_\Omega a(x,\mu)\nabla u\cdot\nabla v\,dx
++\int_\Omega c(x,\mu)u\,v\,dx,
+\label{eq:bilinear}
+\end{equation}
+with
+\begin{align}
+a(x,\mu)&\ge a_0>0,\\
+c(x,\mu)&\ge 0,
+\end{align}
+uniformly in $\mu$, and let $f_\mu\in V'$. The weak solution $u^\star(\cdot;\mu)\in V$ is defined by
+\begin{equation}
+a_\mu(u^\star,v)=\langle f_\mu,v\rangle,\qquad \forall v\in V.
+\label{eq:weak}
+\end{equation}
+
+Let $A_\mu:V\to V'$ denote the induced operator,
+\[
+\langle A_\mu u,v\rangle=a_\mu(u,v).
+\]
+
+\subsection{Scope of the theory}
+
+The analysis in this section is carried out for a linear approximation space $X_N\subset V$ and bounded linear anchor functionals. This is the natural setting for an explicit projection-based theory. For neural network parameterizations, the same ideas should be interpreted locally, through the linearization of the nonlinear approximation manifold around a reference state or a trained surrogate. The genuinely nonlinear neural case is important, but it lies beyond the scope of the present theorem package.
+
+\subsection{Surrogate class and model functional}
+
+Let $X_N\subset V$ be a finite-dimensional approximation class, and let
+\[
+\ell_1,\dots,\ell_m\in V'
+\]
+be bounded linear anchor observables. For the solver approximation $u_h(\cdot;\mu)$ define
+\[
+d_j^h(\mu)=\ell_j(u_h(\cdot;\mu)).
+\]
+
+We consider the model hybrid functional
+\begin{equation}
+\mathcal{J}^{(N)}_\mu(w)=
+\lambda_r\norm{A_\mu w-f_\mu}_{V'}^2
++\lambda_a\sum_{j=1}^m\abs{\ell_j(w)-d_j^h(\mu)}^2,
+\qquad w\in X_N.
+\label{eq:strictloss}
+\end{equation}
+
+\subsection{Anchor-residual stability}
+
+\begin{assumption}[Anchor-residual stability on $X_N$]
+\label{ass:stability}
+There exists $C_{\mathrm{st}}>0$ such that for every $v\in X_N$,
+\begin{equation}
+\norm{v}_V
+\le
+C_{\mathrm{st}}
+\left(
+\norm{A_\mu v}_{V'}
++
+\Bigl(\sum_{j=1}^m\abs{\ell_j(v)}^2\Bigr)^{1/2}
+\right).
+\label{eq:anchorstability}
+\end{equation}
+\end{assumption}
+
+This assumption expresses observability on the surrogate class: residual control and anchor observations together define the norm.
+
+\begin{proposition}[Finite-dimensional sufficient condition]
+\label{prop:suff}
+Suppose that the linear map
+\[
+T_\mu:X_N\to V'\times\R^m,
+\qquad
+T_\mu(v)=\bigl(A_\mu v,\ell_1(v),\dots,\ell_m(v)\bigr)
+\]
+is injective. Then Assumption~\ref{ass:stability} holds on $X_N$.
+\end{proposition}
+
+\begin{proof}
+Since $X_N$ is finite-dimensional, all norms on $X_N$ are equivalent. Equip $V'\times\R^m$ with the norm
+\[
+\norm{(F,\alpha)}_{*}=\norm{F}_{V'}+\Bigl(\sum_{j=1}^m\abs{\alpha_j}^2\Bigr)^{1/2}.
+\]
+Injectivity of $T_\mu$ implies that $\norm{T_\mu(v)}_*$ is a norm on $X_N$. By finite-dimensional norm equivalence, there exists $C_{\mathrm{st}}>0$ such that
+\[
+\norm{v}_V\le C_{\mathrm{st}}\norm{T_\mu(v)}_*,
+\]
+which is exactly \eqref{eq:anchorstability}.
+\end{proof}
+
+\begin{remark}
+Proposition~\ref{prop:suff} turns the abstract stability assumption into a concrete design principle: anchors must eliminate directions that are weakly constrained by the residual on the chosen approximation class.
+\end{remark}
+
+\subsection{Projection-based transfer theorem}
+
+Let $\Proj_N:V\to X_N$ be a stable projector. Since $u_h(\cdot;\mu)$ need not lie in $X_N$, comparison with the surrogate must pass through the projection.
+
+\begin{theorem}[Projection-based transfer from solver to surrogate]
+\label{thm:mainstrict}
+Assume Assumption~\ref{ass:stability}. Then for every $w_N\in X_N$,
+\begin{equation}
+\norm{w_N-\Proj_Nu_h(\cdot;\mu)}_V
+\le
+C_{\mathrm{st}}
+\left(
+\norm{A_\mu\!\left(w_N-\Proj_Nu_h(\cdot;\mu)\right)}_{V'}
++
+\Delta_a(w_N,\Proj_Nu_h)
+\right),
+\label{eq:projective_step0}
+\end{equation}
+where
+\[
+\Delta_a(w_N,\Proj_Nu_h)=
+\Bigl(
+\sum_{j=1}^m
+\abs{\ell_j(w_N)-\ell_j(\Proj_Nu_h(\cdot;\mu))}^2
+\Bigr)^{1/2}.
+\]
+Consequently,
+\begin{align}
+\norm{w_N-u_h(\cdot;\mu)}_V
+&\le
+\norm{u_h(\cdot;\mu)-\Proj_Nu_h(\cdot;\mu)}_V
+\notag\\
+&\quad+
+C_{\mathrm{st}}
+\Bigl(
+\norm{A_\mu w_N-f_\mu}_{V'}
++
+\norm{A_\mu\Proj_Nu_h(\cdot;\mu)-f_\mu}_{V'}
++
+\Delta_a(w_N,\Proj_Nu_h)
+\Bigr).
+\label{eq:projective_main}
+\end{align}
+\end{theorem}
+
+\begin{proof}
+Set
+\[
+v_N=w_N-\Proj_Nu_h(\cdot;\mu)\in X_N.
+\]
+Applying Assumption~\ref{ass:stability} to $v_N$ gives
+\[
+\norm{v_N}_V
+\le
+C_{\mathrm{st}}
+\left(
+\norm{A_\mu v_N}_{V'}
++
+\Bigl(\sum_{j=1}^m \abs{\ell_j(v_N)}^2\Bigr)^{1/2}
+\right).
+\]
+Since
+\[
+A_\mu v_N=A_\mu w_N-A_\mu \Proj_Nu_h(\cdot;\mu),
+\]
+we obtain
+\[
+\norm{A_\mu v_N}_{V'}
+\le
+\norm{A_\mu w_N-f_\mu}_{V'}
++
+\norm{A_\mu \Proj_Nu_h(\cdot;\mu)-f_\mu}_{V'}.
+\]
+Likewise,
+\[
+\ell_j(v_N)=\ell_j(w_N)-\ell_j(\Proj_Nu_h(\cdot;\mu)).
+\]
+Substituting these relations yields \eqref{eq:projective_step0}. The triangle inequality then gives \eqref{eq:projective_main}.
+\end{proof}
+
+\begin{remark}
+The theorem shows that surrogate error should be measured against $\Proj_Nu_h$, not directly against $u_h$. The projection-approximation term is intrinsic unless $u_h\in X_N$.
+\end{remark}
+
+\subsection{Consistency}
+
+\begin{corollary}[Consistency of the hybrid scheme in the model setting]
+\label{cor:consistency}
+Suppose that:
+\begin{enumerate}[label=\arabic*)]
+    \item $\norm{u^\star(\cdot;\mu)-u_h(\cdot;\mu)}_V\to 0$ as $h\to 0$;
+    \item $\norm{u_h(\cdot;\mu)-\Proj_Nu_h(\cdot;\mu)}_V\to 0$ as $N\to\infty$;
+    \item there exists a sequence $w_{N,h}\in X_N$ such that
+    \[
+    \norm{A_\mu w_{N,h}-f_\mu}_{V'}\to 0,
+    \qquad
+    \Delta_a(w_{N,h},\Proj_Nu_h)\to 0;
+    \]
+    \item Assumption~\ref{ass:stability} holds uniformly over the relevant regime.
+\end{enumerate}
+Then
+\[
+\norm{w_{N,h}-u^\star(\cdot;\mu)}_V\to 0
+\]
+under a coordinated limit $h\to 0$, $N\to\infty$.
+\end{corollary}
+
+\begin{proof}
+By Theorem~\ref{thm:mainstrict},
+\[
+\norm{w_{N,h}-u_h(\cdot;\mu)}_V\to 0.
+\]
+Hence
+\[
+\norm{w_{N,h}-u^\star(\cdot;\mu)}_V
+\le
+\norm{w_{N,h}-u_h(\cdot;\mu)}_V
++
+\norm{u_h(\cdot;\mu)-u^\star(\cdot;\mu)}_V\to 0.
+\]
+\end{proof}
+
+\begin{remark}
+Condition~3 is an approximation hypothesis, not a hidden theorem. For nonlinear neural parameterizations it is nontrivial, and the present framework does not claim more.
+\end{remark}
+
+% =================================================
+\section{Analytical toy model}
+\label{sec:toy}
+% =================================================
+
+To see explicitly how anchors affect the optimizer, consider
+\begin{equation}
+-u''(x;\mu)=\mu \pi^2\sin(\pi x),\qquad x\in(0,1),\qquad u(0;\mu)=u(1;\mu)=0,
+\label{eq:modelpde}
+\end{equation}
+whose exact solution is $u^\star(x;\mu)=\mu\sin(\pi x)$.
+
+Let the surrogate class be
+\[
+u_\alpha(x;\mu)=\alpha(\mu)\sin(\pi x),
+\]
+and let the anchor solver produce
+\[
+u_h(x;\mu)=a_h(\mu)\sin(\pi x).
+\]
+Consider
+\begin{equation}
+\mathcal{J}_{\mathrm{toy}}(\alpha)=
+\frac{\lambda_r\pi^4}{2}\abs{\alpha(\mu)-\mu}^2
++
+\lambda_a\abs{\alpha(\mu)-a_h(\mu)}^2.
+\label{eq:toyloss}
+\end{equation}
+
+The factor $\pi^4/2$ comes from the squared $L^2(0,1)$ residual of the one-mode ansatz: since
+\[
+-u_\alpha''-\mu\pi^2\sin(\pi x)=\pi^2(\alpha-\mu)\sin(\pi x),
+\]
+one has
+\[
+\int_0^1 \abs{-u_\alpha''-\mu\pi^2\sin(\pi x)}^2\,dx
+=
+\pi^4(\alpha-\mu)^2 \int_0^1 \sin^2(\pi x)\,dx
+=
+\frac{\pi^4}{2}(\alpha-\mu)^2.
+\]
+
+\begin{theorem}[Closed-form anchor compromise]
+\label{thm:toy}
+The functional \eqref{eq:toyloss} has the unique minimizer
+\begin{equation}
+\alpha_{\mathrm{opt}}(\mu)=
+\frac{\lambda_r\pi^4\mu+2\lambda_a a_h(\mu)}
+{\lambda_r\pi^4+2\lambda_a}.
+\label{eq:alphastar}
+\end{equation}
+Hence
+\begin{equation}
+\abs{\alpha_{\mathrm{opt}}(\mu)-\mu}
+=
+\frac{2\lambda_a}{\lambda_r\pi^4+2\lambda_a}\abs{a_h(\mu)-\mu},
+\label{eq:alphaerror}
+\end{equation}
+and
+\begin{equation}
+\abs{\alpha_{\mathrm{opt}}(\mu)-a_h(\mu)}
+=
+\frac{\lambda_r\pi^4}{\lambda_r\pi^4+2\lambda_a}\abs{a_h(\mu)-\mu}.
+\label{eq:alphaanchor}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Differentiate \eqref{eq:toyloss} with respect to $\alpha$:
+\[
+\frac{d}{d\alpha}\mathcal{J}_{\mathrm{toy}}
+=
+\lambda_r\pi^4(\alpha-\mu)+2\lambda_a(\alpha-a_h).
+\]
+Setting the derivative equal to zero gives \eqref{eq:alphastar}. The remaining identities follow by subtraction.
+\end{proof}
+
+\begin{corollary}[Interpretation of the one-mode mechanism]
+\label{cor:toy}
+The minimizer exhibits the following limiting regimes:
+\begin{enumerate}[label=\roman*)]
+    \item \textbf{Physics limit:} if $\lambda_a\to0$, then $\alpha_{\mathrm{opt}}(\mu)\to\mu$;
+    \item \textbf{Anchor limit:} if $\lambda_r\to0$, then $\alpha_{\mathrm{opt}}(\mu)\to a_h(\mu)$;
+    \item \textbf{Damped solver error:} the deviation from the exact coefficient is a weighted fraction of the solver error;
+    \item \textbf{Selector effect:} the anchor term suppresses admissible directions that are not aligned with the solver-guided coefficient.
+\end{enumerate}
+\end{corollary}
+
+\begin{remark}
+The theorem does not prove every claim one might want about nonlinear branch selection, but it makes one point exact: the anchor term does not replace physics; it changes the geometry of minimization.
+\end{remark}
+
+% =================================================
+\section{Error decomposition}
+\label{sec:error}
+% =================================================
+
+Let $u^\star$ be the exact solution, $u_h$ the anchor solver solution, and $u_\theta$ the trained HAPINN surrogate. Then
+\begin{equation}
+u^\star-u_\theta=(u^\star-u_h)+(u_h-u_\theta),
+\label{eq:basicid}
+\end{equation}
+hence
+\begin{equation}
+\norm{u^\star-u_\theta}_{\cU}
+\le
+\norm{u^\star-u_h}_{\cU}
++
+\norm{u_h-u_\theta}_{\cU}.
+\label{eq:trianglemain}
+\end{equation}
+
+Introducing the projection onto the surrogate class,
+\[
+u_h-u_\theta=(u_h-\Proj_Nu_h)+(\Proj_Nu_h-u_\theta),
+\]
+one obtains
+\begin{equation}
+\norm{u^\star-u_\theta}_{\cU}
+\le
+\underbrace{\norm{u^\star-u_h}_{\cU}}_{\text{numerical error}}
++
+\underbrace{\norm{u_h-\Proj_Nu_h}_{\cU}}_{\text{projection error}}
++
+\underbrace{\norm{\Proj_Nu_h-u_\theta}_{\cU}}_{\text{training/transfer error}}.
+\label{eq:decomp1}
+\end{equation}
+
+Refining further with the best attainable surrogate in the class gives
+\begin{equation}
+\norm{u^\star-u_\theta}_{\cU}
+\le
+\underbrace{\norm{u^\star-u_h}_{\cU}}_{\text{numerical}}
++
+\underbrace{\norm{u_h-\Proj_Nu_h}_{\cU}}_{\text{projection}}
++
+\underbrace{\inf_\vartheta \norm{\Proj_Nu_h-u_\vartheta}_{\cU}}_{\text{approximation}}
++
+\underbrace{\norm{u_{\vartheta^\star}-u_\theta}_{\cU}}_{\text{optimization}}
++
+\underbrace{\mathcal{E}_{\mathrm{gen}}}_{\text{parameter generalization}},
+\label{eq:extendeddecomp}
+\end{equation}
+where $\mathcal{E}_{\mathrm{gen}}$ denotes the parameter generalization component.
+
+\begin{remark}
+This five-way decomposition is methodologically useful because it separates the effect of anchors from the classical numerical error and from the training error of the neural surrogate.
+\end{remark}
+
+% =================================================
+\section{Algorithmic framework}
+\label{sec:algorithm}
+% =================================================
+
+\begin{algorithm}[H]
+\caption{General HAPINN training loop}
+\label{alg:hapinn}
+\begin{algorithmic}[1]
+\State Specify the parameterized PDE problem and the training parameter set
+\State Choose a base solver $\cS_h$ and a surrogate $u_\theta(x;\mu)$
+\State Select anchor parameters and construct an initial anchor set $\cD_a$
+\State Build residual, boundary, and initial collocation sets $\cD_r,\cD_b,\cD_0$
+\State Initialize $\lambda_r,\lambda_b,\lambda_0,\lambda_a$
+\For{$t=1,2,\dots,T$}
+    \State Update $\theta$ by minimizing \eqref{eq:HAPINNloss}
+    \State Evaluate block losses $\cJ_r,\cJ_b,\cJ_0,\cJ_a$
+    \If{high residual, training drift, or visible instability is detected}
+        \State Enrich $\cD_a$ with new anchor observations
+    \EndIf
+    \State Optionally rebalance the weights by a standard strategy
+\EndFor
+\State Validate on unseen parameters and report both accuracy and stability
+\end{algorithmic}
+\end{algorithm}
+
+The algorithm is intentionally stated at the framework level. Its role is to make the computational logic explicit, not to overstate problem-independent hyperparameter prescriptions.
+
+% =================================================
+\section{Practical anchor design and loss balancing}
+\label{sec:practical}
+% =================================================
+
+\subsection{Anchorization regimes}
+
+In practice it is useful to distinguish:
+\begin{enumerate}[label=\arabic*)]
+    \item \textbf{full anchorization:} dense solver nodes are used;
+    \item \textbf{sparse anchorization:} selected anchor observables only;
+    \item \textbf{local anchorization:} anchors are concentrated in regions with layers, interfaces, or steep gradients;
+    \item \textbf{adaptive anchorization:} new anchors are added during training.
+\end{enumerate}
+
+\subsection{Residual-informed anchor indicator}
+
+A practical residual-informed anchor indicator may be defined as
+\[
+\eta(x,\mu)=\omega_r\,\rho_r(x,\mu)+\omega_s\,\rho_s(x,\mu)+\omega_g\,\rho_g(x,\mu),
+\]
+where $\rho_r$ denotes a local residual magnitude, $\rho_s$ a local stiffness or sensitivity indicator, and $\rho_g$ the gradient magnitude or an interface detector. This indicator is intentionally generic: it is meant to describe a family of residual-informed enrichment strategies rather than a single universal rule.
+
+\subsection{Loss balancing}
+
+The hybrid weights are crucial. In practice, four regimes are natural:
+\begin{enumerate}[label=\arabic*)]
+    \item fixed weights when the PDE is simple and scaling is controlled;
+    \item staged training, with larger early anchor weight followed by stronger residual enforcement;
+    \item gradient-norm balancing;
+    \item multi-task weighting borrowed from standard optimization heuristics.
+\end{enumerate}
+
+We intentionally avoid prescribing a new universal update law here. In applied settings, well-known balancing strategies from multi-task learning and PINN practice, such as gradient-based normalization or uncertainty-based weighting, may be used when appropriate. The point of the present framework is not to introduce a new balancing heuristic, but to clarify the structural role of the anchor term.
+
+\subsection{How many anchors are needed}
+
+No universal scaling law exists. In practice one should take into account:
+\begin{enumerate}[label=\arabic*)]
+    \item smoothness of the map $\mu\mapsto u^\star(\cdot;\mu)$;
+    \item effective dimension of the solution manifold;
+    \item degree of nonlinearity and regime transition;
+    \item quality of the base solver;
+    \item richness of the surrogate class.
+\end{enumerate}
+
+\begin{remark}
+The present paper does not claim a new universal hyperparameter rule. The practical guidance here is intentionally moderate and framework-oriented.
+\end{remark}
+
+% =================================================
+\section{Published semiconductor realization as a concrete HAPINN instance}
+\label{sec:instance}
+% =================================================
+
+The framework introduced here is new, but the general principle is not merely hypothetical. A published hybrid PINN--TCAD study on p--n junction simulation provides a concrete application-level instance of the same architecture \cite{PetrosyanYepiskoposyan2026}.
+
+\begin{proposition}
+The published hybrid PINN--TCAD scheme for p--n junction simulation is a special case of HAPINN, with solver outputs acting as anchors and the data-consistency block acting as $\mathcal{J}_a$.
+\end{proposition}
+
+\begin{proof}
+The published scheme minimizes a composite functional of the form
+\[
+L=w_{\mathrm{PDE}}L_{\mathrm{PDE}}+w_{\mathrm{BC}}L_{\mathrm{BC}}+w_{\mathrm{data}}L_{\mathrm{data}},
+\]
+where $L_{\mathrm{data}}$ is computed from solver-generated quantities. This matches the HAPINN structure by direct identification of terms.
+\end{proof}
+
+The role of this observation is interpretive, not duplicative. The present paper does not claim the semiconductor experiment as a new result. What it claims is narrower and cleaner: the published application fits the framework, and the framework helps explain why that class of hybrid solvers can be effective.
+
+\begin{table}[H]
+\centering
+\caption{Empirical evidence from the published semiconductor study}
+\label{tab:published_results}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{p{4.1cm}p{3.0cm}p{6.9cm}}
+\toprule
+\textbf{Scenario} & \textbf{Reported result} & \textbf{Framework interpretation} \\
+\midrule
+1D potential prediction across silicon devices & $0.48\%$ RMS error & Solver-guided surrogate reaches sub-percent fidelity \\
+\addlinespace
+Acceleration vs. Sentaurus TCAD & $47\times$ speed-up & Expensive repeated solves are replaced by learned inference \\
+\addlinespace
+2D extension & $0.62\%$ RMS error, $12\times$ acceleration & The anchor-guided idea is not restricted to the minimal 1D setting \\
+\addlinespace
+C--V validation & $0.9\%$ RMS deviation, $177\times$ runtime reduction & Solver-guided training remains consistent with an additional device-level observable \\
+\addlinespace
+Spillover effect quantification & up to $8$ mV built-in potential correction & Hybrid framework reveals physically meaningful deviation from the analytical approximation \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection*{What is new here relative to the published semiconductor paper}
+
+To avoid conceptual confusion, let us state the distinction explicitly.
+
+In the published semiconductor paper, the main object was the p--n junction problem itself, together with numerical validation and device-level implications. In the present paper, the main object is the \emph{general solver-guided anchor-based framework}. The novelty of the present paper lies in:
+\begin{enumerate}[label=\alph*)]
+    \item unified terminology and abstract formulation;
+    \item canonical hybrid loss structure;
+    \item projection-based transfer theory;
+    \item consistency result in a model elliptic setting;
+    \item explicit analytical anchor mechanism;
+    \item general error decomposition;
+    \item formal translation of the application-level hybrid scheme into the language of a broader method class.
+\end{enumerate}
+
+This article therefore does not repeat the semiconductor paper; it extracts its general methodological invariant.
+
+% =================================================
+\section{Problem classes and transferability}
+\label{sec:classes}
+% =================================================
+
+The framework applies most directly to coercive elliptic problems, which is precisely the setting of the rigorous theory developed above. It also extends naturally to parabolic and evolutionary equations by inclusion of the initial-loss term and time as an additional variable in the surrogate.
+
+For coupled systems, anchors may be specified for all components, only for the stiffest components, or on selected subdomains. This is especially relevant for drift--diffusion--Poisson systems, electro-thermal couplings, and other multiphysics models.
+
+In nonlinear and multi-regime problems, the role of anchors becomes especially important because residual-based training may admit multiple near-admissible branches. In such settings, HAPINN is best understood as a framework for preserving solver-guided branch consistency.
+
+In inverse problems and parameter identification, the anchor module can reduce the set of nonphysical candidate solutions and thereby improve robustness of joint optimization over state and parameter variables.
+
+% =================================================
+\section{Limitations and scope}
+\label{sec:limitations}
+% =================================================
+
+HAPINN is not a universal automatic solution to all problems in scientific machine learning.
+
+\begin{enumerate}[label=\arabic*)]
+    \item \textbf{Solver quality matters.} If the numerical solver is coarse or biased, anchors can transmit that bias.
+    \item \textbf{Coverage matters.} Sparse anchors do not by themselves guarantee broad parametric generalization.
+    \item \textbf{Very high-dimensional and stiff regimes remain difficult.} Anchors help, but they do not remove the curse of dimensionality or all optimization pathologies.
+    \item \textbf{The present theory is intentionally limited.} The rigorous results are proved only in a coercive elliptic model setting.
+    \item \textbf{The linear theory does not by itself settle the nonlinear neural case.} For neural parameterizations, the theorems above should be read as local structural guidance rather than as full global convergence theorems.
+    \item \textbf{Solver bias can propagate.} If the base solver has a systematic bias that does not vanish under refinement, then HAPINN may inherit that bias, modulated but not eliminated by the anchor weight.
+    \item \textbf{This paper is not an empirical benchmark paper.} It does not claim a new comparative numerical campaign across multiple PDE families.
+\end{enumerate}
+
+The last point is especially important. The contribution of this article is conceptual, methodological, and theoretical. The application-level evidence it uses is published evidence, not newly claimed unpublished experimentation.
+
+% =================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% =================================================
+
+This paper introduced HAPINN, a solver-guided anchor-based framework for parameterized differential equations. Its central idea is simple but structurally important: solver information need not be dense, and it need not act merely as an auxiliary fidelity layer. Used sparsely and deliberately, anchor observations can alter the admissible geometry of residual-based training.
+
+The paper established this claim at four levels:
+\begin{enumerate}[label=\arabic*)]
+    \item \textbf{framework level:} a unified hybrid formulation was given for parameterized PDEs;
+    \item \textbf{theory level:} a projection-based transfer estimate and finite-dimensional sufficient conditions for anchor-residual stability were proved in a coercive elliptic setting;
+    \item \textbf{analytical level:} a closed-form toy model showed how anchors mediate the compromise between physics fidelity and solver guidance;
+    \item \textbf{application level:} a published hybrid PINN--TCAD realization was interpreted as a concrete HAPINN instance.
+\end{enumerate}
+
+HAPINN should therefore be understood not as a minor variant of PINN, but as a distinct solver-guided physics-informed framework. The next natural steps are broader benchmark studies, sharper analysis of anchor informativeness, nonlinear and coupled extensions, uncertainty-aware multi-anchor variants, and larger reproducibility packages. Even in its present form, however, the framework provides a clearer language and a more explicit mathematical backbone for a class of methods that has so far been described mostly in application-specific terms.
+
+% =================================================
+\section*{Acknowledgements}
+% =================================================
+
+The authors thank colleagues and collaborators for discussions on hybrid scientific machine learning, numerical approximation, and semiconductor modeling.
+
+% =================================================
+\section*{Data availability}
+% =================================================
+
+No new dataset was generated for this framework article. The application-level evidence discussed in Section~\ref{sec:instance} comes from a previously published study, where implementation code, datasets, and reproduction scripts are reported as openly available.
+
+% =================================================
+\section*{Code availability}
+% =================================================
+
+This article does not introduce a new benchmark code package of its own. Code availability for the semiconductor realization discussed in Section~\ref{sec:instance} is governed by the published application paper.
+
+% =================================================
+\section*{Declaration of competing interest}
+% =================================================
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+% =================================================
+\begin{thebibliography}{99}
+
+\bibitem{Raissi2019}
+Raissi, M., Perdikaris, P., Karniadakis, G.~E.:
+Physics-informed neural networks: a deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations.
+\textit{Journal of Computational Physics},
+\textbf{378}, 686--707 (2019)
+
+\bibitem{Karniadakis2021}
+Karniadakis, G.~E., Kevrekidis, I.~G., Lu, L., Perdikaris, P., Wang, S., Yang, L.:
+Physics-informed machine learning.
+\textit{Nature Reviews Physics},
+\textbf{3}, 422--440 (2021)
+
+\bibitem{DeepONet2021}
+Lu, L., Jin, P., Pang, G., Zhang, Z., Karniadakis, G.~E.:
+Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators.
+\textit{Nature Machine Intelligence},
+\textbf{3}, 218--229 (2021)
+
+\bibitem{FNO2021}
+Li, Z., Kovachki, N., Azizzadenesheli, K., Liu, B., Bhattacharya, K., Stuart, A., Anandkumar, A.:
+Fourier neural operator for parametric partial differential equations.
+\textit{International Conference on Learning Representations} (2021)
+
+\bibitem{PPINN2020}
+Meng, X., Li, Z., Zhang, D., Karniadakis, G.~E.:
+PPINN: Parareal physics-informed neural network for time-dependent PDEs.
+\textit{Computer Methods in Applied Mechanics and Engineering},
+\textbf{370}, 113250 (2020)
+
+\bibitem{GradientEnhancedPINN2022}
+Yu, J., Lu, L., Meng, X., Karniadakis, G.~E.:
+Gradient-enhanced physics-informed neural networks for forward and inverse PDE problems.
+\textit{Computer Methods in Applied Mechanics and Engineering},
+\textbf{393}, 114823 (2022)
+
+\bibitem{WangCausality2022}
+Wang, S., Sankaran, S., Perdikaris, P.:
+Respecting causality is all you need for training physics-informed neural networks.
+\textit{Computer Methods in Applied Mechanics and Engineering},
+\textbf{399}, 115295 (2022)
+
+\bibitem{MFPINN2022}
+Penwarden, M., Zhe, S., Narayan, A., Kirby, R.~M.:
+Multifidelity modeling for physics-informed neural networks.
+\textit{Journal of Computational Physics},
+\textbf{451}, 110844 (2022)
+
+\bibitem{MultifidelitySurvey2024}
+Xiao, H., Lu, D., Owhadi, H., et al.:
+Multi-fidelity scientific machine learning for PDEs: recent advances and open problems.
+\textit{Archives of Computational Methods in Engineering},
+\textbf{31}, 1--32 (2024)
+
+\bibitem{ReducedBasis2008}
+Quarteroni, A., Rozza, G.:
+\textit{Reduced Order Methods for Modeling and Computational Reduction}.
+Springer, Milano (2014)
+
+\bibitem{ROMSurvey2015}
+Benner, P., Gugercin, S., Willcox, K.:
+A survey of projection-based model reduction methods for parametric dynamical systems.
+\textit{SIAM Review},
+\textbf{57}(4), 483--531 (2015)
+
+\bibitem{Evans}
+Evans, L.~C.:
+\textit{Partial Differential Equations}.
+American Mathematical Society, Providence (2010)
+
+\bibitem{Quarteroni}
+Quarteroni, A., Sacco, R., Saleri, F.:
+\textit{Numerical Mathematics}.
+Springer, Berlin (2007)
+
+\bibitem{BrennerScott}
+Brenner, S.~C., Scott, R.:
+\textit{The Mathematical Theory of Finite Element Methods}.
+Springer, New York (2008)
+
+\bibitem{Goodfellow}
+Goodfellow, I., Bengio, Y., Courville, A.:
+\textit{Deep Learning}.
+MIT Press, Cambridge (2016)
+
+\bibitem{PetrosyanYepiskoposyan2026}
+Petrosyan, A.~V., Yepiskoposyan, A.~S.:
+Hybrid PINN--TCAD framework for sub-percent p--n junction simulation with spillover error quantification.
+\textit{Journal of Computational Electronics},
+\textbf{25}, Article 12 (2026)
+
+\end{thebibliography}
+
+\end{document}
