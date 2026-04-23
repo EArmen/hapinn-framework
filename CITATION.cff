@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+title: "HAPINN: A Solver-Guided Anchor-Based Framework for Parameterized Differential Equations"
+message: "If you use this repository, please cite the associated manuscript."
+type: software
+authors:
+  - family-names: "Episkoposian"
+    given-names: "Sergo A."
+    email: "sergo.episkoposyan@polytechnic.am"
+    affiliation: "National Polytechnic University of Armenia"
+  - family-names: "Petrosyan"
+    given-names: "Alfred V."
+    email: "petrosyanalfred58@gmail.com"
+    affiliation: "National Polytechnic University of Armenia"
+  - family-names: "Yepiskoposyan"
+    given-names: "Armen S."
+    email: "earmen04@gmail.com"
+    affiliation: "Yerevan State University"
+repository-code: "https://github.com/YOUR-USERNAME/hapinn-framework-paper"
+license: "CC-BY-4.0"
